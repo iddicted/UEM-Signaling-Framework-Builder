@@ -8,8 +8,11 @@ This tool creates the necessary Smart Groups, Policies, and Scripts in Jamf Pro 
 - Create Extension Attributes for UEM Signaling tags.
 - Creates Smart Groups for each UEM Signaling tag.
 
+## images
+![EA selecter 1](./Images/image1.png)
+![EA selecter 2](./Images/image2.png)
+![Action Done](./Images/image3.png)
 ## Usage
-1. Download the script and make it executable:
    ```bash
    chmod +x UEM_Signaling_Framework_Builder.sh
    ```
