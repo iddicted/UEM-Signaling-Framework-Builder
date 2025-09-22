@@ -30,7 +30,7 @@ threat_prevention_policies_iOS=( "Phishing" "Data Leaks" "Malware network traffi
 # Path to Swift Dialog binary
 messageFont="size=20,name=HelveticaNeue"
 titleFont="weight=bold,size=30,name=HelveticaNeue-Bold"
-icon="https://github.com/iddicted/urlpending"
+icon="https://github.com/iddicted/UEM-Signaling-Framework-Builder/blob/main/Images/Logo.png?raw=true"
 #### End Configuration Variables ####
 #################################
 
