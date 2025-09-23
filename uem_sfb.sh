@@ -7,10 +7,10 @@
 # - JAMF_CLIENT_ID_FULL_ADMIN: The client ID of a Jamf Pro API user
 # - JAMF_CLIENT_SECRET_FULL_ADMIN: The client secret of a Jamf Pro API user
 ## Required Permissions:
-# - Computer Extension Attributes: Create, Read
-# - Mobile Device Extension Attributes: Create, Read
-# - Computer Groups: Create, Read
-# - Mobile Device Groups: Create, Read
+# - Computer Extension Attributes: Create
+# - Mobile Device Extension Attributes: Create
+# - Computer Groups: Create
+# - Mobile Device Groups: Create
 
 ################################################################################
 ##### CONFIGURABLE VARIABLES #####
