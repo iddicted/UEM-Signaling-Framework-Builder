@@ -31,6 +31,7 @@ threat_prevention_policies_iOS=( "Phishing" "Data Leaks" "Malware network traffi
 messageFont="size=20,name=HelveticaNeue"
 titleFont="weight=bold,size=30,name=HelveticaNeue-Bold"
 icon="https://github.com/iddicted/UEM-Signaling-Framework-Builder/blob/main/Images/Logo.png?raw=true"
+local_icon="/tmp/UEM_SFB_logo.png" # Local path to the logo file
 #### End Configuration Variables ####
 #################################
 
@@ -102,6 +103,11 @@ invalidateToken() {
 }
 
 #### SWIFT DIALOG FUNCTIONS ####
+# Download the logo file to have it available offline
+downloadLogo() {
+    curl -L -o "$local_icon" "$icon"
+}
+
 credentialPrompt() {
 	echo "INFO: Prompting user for Jamf Pro credentials..."
     # Request JSON output and use the correct syntax for textfield options
@@ -111,7 +117,7 @@ credentialPrompt() {
         --textfield "Jamf Pro URL" --required \
         --textfield "Client ID" --required \
         --textfield "Client Secret" --required --secure \
-        --icon "$icon" \
+        --icon "$local_icon" \
         --alignment "left" \
         --small \
         --button2 \
@@ -159,7 +165,7 @@ select_macOS_TPPs_prompt() {
         --message "Please select the Computer Extension Attributes you want to create:" \
         --messagefont "$messageFont" \
         --titlefont "$titleFont" \
-        --icon "$icon" \
+        --icon "$local_icon" \
         --checkboxstyle "switch,large" \
         --width 800 \
         --infobuttontext "Select All" \
@@ -199,7 +205,7 @@ select_iOS_TPPs_prompt() {
         --message "Please select the Mobile Device Extension Attributes you want to create:" \
         --messagefont "$messageFont" \
         --titlefont "$titleFont" \
-        --icon "$icon" \
+        --icon "$local_icon" \
         --checkboxstyle "switch,large" \
         --width 800 \
         --button2 "Cancel" \
@@ -346,10 +352,25 @@ donePrompt() {
 ######################################################################################################## END FUNCTIONS ################################################################################
 
 ################################################################################ MAIN SCRIPT EXECUTION ################################################################################
+install_swift_dialog
+#check if logo exists, if not download it
+if [[ -f "/tmp/UEM_SFB_logo.png" ]]; then
+    echo "INFO: Logo file already exists."
+else
+    echo "INFO: Logo file not found, downloading..."
+    downloadLogo
+    exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo "ERROR: Failed to download logo file. Exiting."
+        exit 1
+    fi  
+    echo "debug: Logo downloaded to $local_icon"
+fi
+
 access_token="" # Initialize to empty to ensure a token is fetched on first check
 token_expiration_epoch="0" # Initialize to 0 to ensure a token is fetched on first check
 checkTokenExpiration
-install_swift_dialog
+
 if [[ $jamf_pro_url == "" || $client_id == "" || $client_secret == "" ]]; then
     credentialPrompt
 else
