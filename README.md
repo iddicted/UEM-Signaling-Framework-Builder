@@ -9,6 +9,7 @@ This tool creates the necessary Smart Groups, Policies, and Scripts in Jamf Pro 
 - Creates Smart Groups for each UEM Signaling tag.
 
 ## images
+![credentials prompt](./Images/image.png)
 ![EA selecter 1](./Images/image1.png)
 ![EA selecter 2](./Images/image2.png)
 ![Action Done](./Images/image3.png)
@@ -23,14 +24,11 @@ This tool creates the necessary Smart Groups, Policies, and Scripts in Jamf Pro 
 3. Follow the prompts to enter your Jamf Pro URL, API credentials, and other configuration options.
 
 Optional:
-Enter your Jamf Pro API credentials as environment variables into your shell profile to avoid being prompted each time:
-(Example)
-```bash
-export JAMF_PRO_URL="https://your-jamf-pro-url" >> ~/.zshrc
-export JAMF_CLIENT_ID="your-client-id" >> ~/.zshrc
-export JAMF_CLIENT_SECRET="your-client-secret" >> ~/.zshrc
-source ~/.zshrc
-```
+Enter your Jamf Pro API credentials as environment variables to avoid being prompted each time you run the script:
+Variable names:
+- JAMF_PRO_URL
+- JAMF_CLIENT_ID
+- JAMF_CLIENT_SECRET
 
 
 ## Requirements

@@ -18,8 +18,8 @@
 
 
 jamf_pro_url="${JAMF_PRO_URL}" # Set JAMF_PRO_URL in your environment
-client_id="${JAMF_CLIENT_ID_FULL_ADMIN}"  # Set JAMF_CLIENT_ID in your environment
-client_secret="${JAMF_CLIENT_SECRET_FULL_ADMIN}" # Set JAMF_CLIENT_SECRET in your environment
+client_id="${JAMF_CLIENT_ID}"  # Set JAMF_CLIENT_ID in your environment
+client_secret="${JAMF_CLIENT_SECRET}" # Set JAMF_CLIENT_SECRET in your environment
 threat_prevention_policies_macOS=("Phishing" "Malware network traffic" "Cryptojacking" "Spam" "Third-party app store traffic" "Vulnerable app installed" "Vulnerable OS (major)" "App inactivity" "Vulnerable OS (minor)"  "Out-of-date OS" "User password disabled")
 threat_prevention_policies_iOS=( "Phishing" "Data Leaks" "Malware network traffic" "Cryptojacking" "Spam" "Third-party app store traffic" "Malware" "Sideloaded app installed" "Vulnerable app installed" "Dangerous certificate" "Adversary-in-the-Middle" "Risky hotspots" "Jailbreak" "Vulnerabor OS (major)" "App inactivity" "Lock screen disabled" "Risky iOS Profile" "Vulnerable OS (minor)" "Out-of-date OS")
 # threat_prevention_policies_macOS=("test1" "test2")
