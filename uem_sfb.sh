@@ -7,10 +7,10 @@
 # - JAMF_CLIENT_ID_FULL_ADMIN: The client ID of a Jamf Pro API user
 # - JAMF_CLIENT_SECRET_FULL_ADMIN: The client secret of a Jamf Pro API user
 ## Required Permissions:
-# - Computer Extension Attributes: Create
-# - Mobile Device Extension Attributes: Create
-# - Computer Groups: Create
-# - Mobile Device Groups: Create
+# - Computer Extension Attributes: Create, Read
+# - Mobile Device Extension Attributes: Create, Read
+# - Computer Groups: Create, Read
+# - Mobile Device Groups: Create, Read
 
 ################################################################################
 ##### CONFIGURABLE VARIABLES #####
@@ -187,12 +187,14 @@ select_macOS_TPPs_prompt() {
         echo "INFO: User cancelled the operation. Exiting."
         exit 0
     elif [[ $exit_code -eq 3 ]]; then
-        echo "INFO: User selected 'Select All'. Selecting all Threat Prevention Policies."
+        echo "INFO: User selected 'Select All'."
         selectedTPPsMac=("${threat_prevention_policies_macOS[@]}")
-        echo "INFO: All TPPs selected: ${selectedTPPsMac[@]}"
+        echo "INFO: Using all TPPs: ${selectedTPPsMac[@]}"
+        echo ""
     else
         selectedTPPsMac=( $(echo "$selectedTPPsMac" | grep ':[[:space:]]*"true"' | cut -d '"' -f 2) )
         echo "INFO: User selected the following TPPs: ${selectedTPPsMac[@]}"
+        echo ""
     fi
 }
 
@@ -235,14 +237,15 @@ select_iOS_TPPs_prompt() {
             echo "INFO: User cancelled the operation. Exiting."
             exit 0
         elif [[ $exit_code -eq 3 ]]; then
-            echo "INFO: User selected 'Select All'. Selecting all Threat Prevention Policies."
+            echo "INFO: User selected 'Select All'."
             selectedTPPsiOS=("${threat_prevention_policies_iOS[@]}")
-            echo "INFO: All TPPs selected: ${selectedTPPsiOS[@]}"
+            echo "INFO: Using all TPPs: ${selectedTPPsiOS[@]}"
+            echo ""
             return
         else
-            echo "INFO: User selected specific Threat Prevention Policies."
             selectedTPPsiOS=( $(echo "$selectedTPPsiOS" | grep ':[[:space:]]*"true"' | cut -d '"' -f 2) )
             echo "INFO: User selected the following TPPs: ${selectedTPPsiOS[@]}"
+            echo ""
         fi        
 }
 ########################
@@ -260,7 +263,7 @@ create_computer_extension_attribute() {
     \"inventoryDisplayType\": \"EXTENSION_ATTRIBUTES\",
     \"inputType\": \"TEXT\",
     \"ldapExtensionAttributeAllowed\": false,
-    \"name\": \"JSC macOS Threat-Prevention_Policy: $policy\",
+    \"name\": \"JSC macOS Threat-Prevention-Policy: $policy\",
     \"description\": \"Jamf Security Cloud Threat Prevention Policy for $policy Events\"
     }")
 }
@@ -273,11 +276,11 @@ create_computer_smart_group() {
         --header 'accept: application/json' \
         --header 'content-type: application/json' \
         --data "{
-            \"name\": \"JSC Threat-Prevention_Policy: $policy\",
+            \"name\": \"JSC Threat-Prevention-Policy: $policy\",
             \"description\": \"Smart Group for devices matching Jamf Security Cloud Threat Prevention Policy: $policy\",
             \"criteria\": [
                 {
-                    \"name\": \"JSC macOS Threat-Prevention_Policy: $policy\",
+                    \"name\": \"JSC macOS Threat-Prevention-Policy: $policy\",
                     \"value\": \"true\",
                     \"searchType\": \"is\",
                     \"andOr\": \"and\"
@@ -299,7 +302,7 @@ create_mobile_device_extension_attribute() {
             \"inventoryDisplayType\": \"EXTENSION_ATTRIBUTES\",
             \"inputType\": \"TEXT\",
             \"ldapExtensionAttributeAllowed\": false,
-            \"name\": \"JSC iOS Threat-Prevention_Policy: $policy\",
+            \"name\": \"JSC iOS Threat-Prevention-Policy: $policy\",
             \"description\": \"Jamf Security Cloud Threat Prevention Policy for $policy Events\"
             }")
 }
@@ -309,11 +312,11 @@ create_mobile_device_smart_group() {
     # Create XML payload for smart group creation
     xml_payload="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
         <mobile_device_group>
-            <name>JSC Threat-Prevention_Policy: $policy</name>
+            <name>JSC Threat-Prevention-Policy: $policy</name>
             <is_smart>true</is_smart>
             <criteria>
                 <criterion>
-                    <name>JSC iOS Threat-Prevention_Policy: $policy</name>
+                    <name>JSC iOS Threat-Prevention-Policy: $policy</name>
                     <priority>0</priority>
                     <and_or>and</and_or>
                     <search_type>is</search_type>
@@ -348,29 +351,101 @@ donePrompt() {
 	--infobuttonaction "file://$LOG_FILE"
 }
 
+check_computer_ea_exists() {
+    echo "INFO: Checking for Computer Extension Attribute '$ea_name'..."
+    local encoded_ea_name
+    encoded_ea_name=$(echo "$ea_name" | sed 's/ /%20/g') # replace spaces with %20 for URL encoding
+    response=$(curl --silent --request GET \
+    --url "$jamf_pro_url/api/v1/computer-extension-attributes?page=0&page-size=200&filter=name%3D%3D%22${encoded_ea_name}%22" \
+    --header "Authorization: Bearer $access_token")
 
+    # if total count is greater than 0, EA exists
+    if [[ $(echo "$response" | jq -r '.totalCount') -gt 0 ]]; then
+        echo "INFO: Computer Extension Attribute with name '$ea_name' already exists. Skipping creation."
+        return 1
+    else
+        echo "INFO: Computer Extension Attribute '$ea_name' not found."
+        return 0
+    fi
+}
+
+get_computer_group_info() {
+    local encoded_group_name
+    encoded_group_name=$(echo "$group_name" | sed 's/ /%20/g') # replace spaces with %20 for URL encoding
+    response=$(curl --silent --request GET \
+        --url "$jamf_pro_url/api/v2/computer-groups/smart-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22${encoded_group_name}%22" \
+        --header "Authorization: Bearer $access_token" \
+        --header 'accept: application/json')
+
+     # if total count is greater than 0, group exists
+     if [[ $(echo "$response" | jq -r '.totalCount') -gt 0 ]]; then
+        echo "Smart Group already exists for Phishing. Skipping creation. Skipping creation."
+        return 1
+    else
+        echo "INFO: Computer Smart Group not found. Creating..."
+        return 0
+    fi
+}
+
+check_mobile_device_ea_exists() {
+    echo "INFO: Checking for Mobile Device Extension Attribute '$ea_name'..."
+    local encoded_ea_name
+    encoded_ea_name=$(echo "$ea_name" | sed 's/ /%20/g') # replace spaces with %20 for URL encoding
+    response=$(curl --silent --request GET \
+        --url "${jamf_pro_url}/api/v1/mobile-device-extension-attributes?page=0&page-size=200&filter=name%3D%3D%22${encoded_ea_name}%22" \
+        --header "Authorization: Bearer ${access_token}")
+    #echo "DEBUG: Response for checking Mobile Device EA existence: $response"
+    # if total count is greater than 0, EA exists
+    if [[ $(echo "$response" | jq -r '.totalCount') -gt 0 ]]; then
+        echo "INFO: Mobile Device Extension Attribute with name '$ea_name' already exists. Skipping creation."
+        return 1
+    else
+        echo "INFO: Mobile Device Extension Attribute '$ea_name' not found."
+        return 0
+    fi
+}
+
+get_mobile_device_group_info() {
+    # using older api to get mobile device groups
+    local encoded_group_name
+    encoded_group_name=$(echo "$group_name" | sed 's/ /%20/g')
+    # get list of all mobile device groups (/api/v1/mobile-device-groups) and check if group exists
+    mobile_device_groups=$(curl --silent --request GET \
+        --url "$jamf_pro_url/api/v1/mobile-device-groups" \
+        --header "Authorization: Bearer $access_token" \
+        --header 'accept: application/json')
+    # if group_name exists in the list, return 1
+    if [[ $(echo "$mobile_device_groups" | jq -r --arg NAME "$group_name" '.[] | select(.name == $NAME) | .name' | wc -l) -gt 0 ]]; then
+        echo "INFO: Mobile Device Smart Group with name '$group_name' already exists. Skipping creation."
+        return 1
+    else
+        echo "INFO: Mobile Device Smart Group '$group_name' not found."
+        return 0
+    fi
+}
 ######################################################################################################## END FUNCTIONS ################################################################################
 
 ################################################################################ MAIN SCRIPT EXECUTION ################################################################################
 install_swift_dialog
 #check if logo exists, if not download it
 if [[ -f "/tmp/UEM_SFB_logo.png" ]]; then
-    echo "INFO: Logo file already exists."
+    echo "INFO: App icon file already exists locally, no download needed."
 else
-    echo "INFO: Logo file not found, downloading..."
+    echo "INFO: App icon file not found, downloading..."
     downloadLogo
     exit_code=$?
     if [[ $exit_code -ne 0 ]]; then
-        echo "ERROR: Failed to download logo file. Exiting."
+        echo "ERROR: Failed to download app icon file. Exiting."
         exit 1
     fi  
-    echo "debug: Logo downloaded to $local_icon"
+    echo "SUCCESS: App icon downloaded to $local_icon"
 fi
 
 access_token="" # Initialize to empty to ensure a token is fetched on first check
 token_expiration_epoch="0" # Initialize to 0 to ensure a token is fetched on first check
 checkTokenExpiration
 
+echo "INFO ############ Starting Swift Dialog ############"
 if [[ $jamf_pro_url == "" || $client_id == "" || $client_secret == "" ]]; then
     credentialPrompt
 else
@@ -382,57 +457,109 @@ select_iOS_TPPs_prompt
 echo ""
 echo "INFO: Processing Computer Extension Attributes and Groups..."
 echo "#################################################################################"
+
+
+
 for policy in "${selectedTPPsMac[@]}"; do
-    # Create the EA
-    echo "INFO: Creating Comnputer EA for: $policy"
-    create_computer_extension_attribute "$policy" 
-    sleep 0.25 # Wait for 0.25 seconds to avoid hitting rate limits
-    if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
-        echo "SUCCESS: Extension Attribute for $policy created successfully." Response code: $http_status
-        echo ""
-    else
-        echo "ERROR: API call failed with HTTP status code: $http_status"
-    fi
-    # Create a smart group for the EA
-    echo "INFO: Creating Computer Smart Group for policy: $policy"
-    create_computer_smart_group "$policy"
-    sleep 0.25
-    if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
-        echo "SUCCESS: Smart Group for $policy created successfully." Response code: $http_status
-        echo ""
-    else
-        #echo "DEBUG: Full response: $http_status"
-        echo "ERROR: Failed to create Smart Group for $policy. HTTP status code: $http_status"
-    fi
+    ea_name="JSC macOS Threat-Prevention-Policy: $policy"
+    # check if EA already exists
+    check_computer_ea_exists
+    if [[ $? -eq 1 ]]; then # If EA exists, skip and check smart group
+        group_name="JSC Threat-Prevention-Policy: $policy"
+        echo "INFO: Looking for Computer Smart Group named: $group_name"
+        get_computer_group_info
+        existstatus=$?
+        if [[ $existstatus -eq 1 ]]; then # If group exists, skip creation
+            continue
+        fi
+        # Create a smart group for the EA if it doesn't exist
+        echo "INFO: Creating Computer Smart Group for policy: $policy"
+        create_computer_smart_group "$policy"
+        sleep 0.5
+        if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
+            echo "SUCCESS: Smart Group for $policy created successfully." Response code: $http_status
+            echo ""
+        else
+            #echo "DEBUG: Full response: $http_status"
+            echo "ERROR: Failed to create Smart Group for $policy. HTTP status code: $http_status"
+        fi
+        continue
+    else # If EA doesn't exist, create it and the smart group
+        # Create the EA
+        echo "INFO: Creating Computer EA for: $policy"
+        create_computer_extension_attribute "$policy"
+        sleep 0.5 # Wait for 0.5 seconds to avoid hitting rate limits
+        if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
+            echo "SUCCESS: Extension Attribute for $policy created successfully." Response code: $http_status
+        else
+            echo "ERROR: API call failed with HTTP status code: $http_status"
+        fi
+        # Create a smart group for the EA
+        echo "INFO: Creating Computer Smart Group for policy: $policy"
+        create_computer_smart_group "$policy"
+        sleep 0.5
+        if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
+            echo "SUCCESS: Smart Group for $policy created successfully." Response code: $http_status
+        else
+            #echo "DEBUG: Full response: $http_status"
+            echo "ERROR: Failed to create Smart Group for $policy. HTTP status code: $http_status"
+        fi
+    fi 
 done
 echo "INFO: Finished creating Extension Attributes and Smart Groups for macOS Threat Prevention Policies."
+echo "--------------------------------------------------------------------------------"
 echo ""
+
+
 
 
 echo "INFO: Processing Mobile Device Extension Attributes and Groups..."
 echo "#################################################################################"
 for policy in "${selectedTPPsiOS[@]}"; do
+    ea_name="JSC iOS Threat-Prevention-Policy: $policy"
+    # check if EA already exists
+    check_mobile_device_ea_exists
+    if [[ $? -eq 1 ]]; then # If EA exists, skip and check smart group
+        group_name="JSC Threat-Prevention-Policy: $policy"
+        echo "INFO: Looking for Mobile Device Smart Group named: $group_name"
+        get_mobile_device_group_info
+        existstatus=$?
+        if [[ $existstatus -eq 1 ]]; then # If group exists, skip creation
+            continue
+        fi
+        # Create a smart group for the EA if it doesn't exist
+        echo "INFO: Creating Mobile Device Smart Group for policy: $policy"
+        create_mobile_device_smart_group "$policy"
+        sleep 0.5
+        if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
+            echo "SUCCESS: Smart Mobile Device Group for $policy created successfully." Response code: $http_status
+            echo ""
+        else
+            #echo "DEBUG: Full response: $http_status"
+            echo "ERROR: Failed to create Smart Mobile Device Group for $policy. HTTP status code: $http_status"
+        fi
+        continue
+    else
     # Create the EA
-    echo "INFO: Creating Mobile Device EA for policy: $policy"
-    create_mobile_device_extension_attribute "$policy" 
-    sleep 0.25 # Wait for 0.25 seconds to avoid hitting rate limits
-    if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
-        echo "SUCCESS: Mobile Device Extension Attribute for $policy created successfully." Response code: $http_status
-        echo ""
-    else
-        echo "ERROR: API call failed with HTTP status code: $http_status"
-    fi
-    # Create a smart group for the EA
-    echo "INFO: Creating Mobile Device Group for policy: $policy"
-    create_mobile_device_smart_group "$policy"
-    sleep 0.25
-    if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
-        echo "SUCCESS: Smart Mobile Device Group for $policy created successfully." Response code: $http_status
-        echo ""
-    else
-        #echo "DEBUG: Full response: $http_status"
-        echo "ERROR: Failed to create Smart Mobile Device Group for $policy. HTTP status code: $http_status"
-        
+        echo "INFO: Creating Mobile Device EA for policy: $policy"
+        create_mobile_device_extension_attribute "$policy" 
+        sleep 0.5 # Wait for 0.5 seconds to avoid hitting rate limits
+        if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
+            echo "SUCCESS: Mobile Device Extension Attribute for $policy created successfully." Response code: $http_status
+            echo ""
+        else
+            echo "ERROR: API call failed with HTTP status code: $http_status"
+        fi
+        # Create a smart group for the EA
+        echo "INFO: Creating Mobile Device Group for policy: $policy"
+        create_mobile_device_smart_group "$policy"
+        sleep 0.5
+        if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
+            echo "SUCCESS: Smart Mobile Device Group for $policy created successfully." Response code: $http_status
+            echo ""
+        else
+            echo "ERROR: Failed to create Smart Mobile Device Group for $policy. HTTP status code: $http_status"
+        fi
     fi
 done
 echo "INFO: Finished creating Extension Attributes and Smart Groups for iOS Threat Prevention Policies."
