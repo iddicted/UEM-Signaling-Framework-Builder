@@ -18,10 +18,10 @@
 
 
 jamf_pro_url="${JAMF_PRO_URL}" # Set JAMF_PRO_URL in your environment
-client_id="${JAMF_CLIENT_ID}"  # Set JAMF_CLIENT_ID in your environment
-client_secret="${JAMF_CLIENT_SECRET}" # Set JAMF_CLIENT_SECRET in your environment
+client_id="${JAMF_CLIENT_ID_UEMSFB}"  # Set JAMF_CLIENT_ID in your environment
+client_secret="${JAMF_CLIENT_SECRET_UEMSFB}" # Set JAMF_CLIENT_SECRET in your environment
 threat_prevention_policies_macOS=("Phishing" "Malware network traffic" "Cryptojacking" "Spam" "Third-party app store traffic" "Vulnerable app installed" "Vulnerable OS (major)" "App inactivity" "Vulnerable OS (minor)"  "Out-of-date OS" "User password disabled")
-threat_prevention_policies_iOS=( "Phishing" "Data Leaks" "Malware network traffic" "Cryptojacking" "Spam" "Third-party app store traffic" "Malware" "Sideloaded app installed" "Vulnerable app installed" "Dangerous certificate" "Adversary-in-the-Middle" "Risky hotspots" "Jailbreak" "Vulnerabor OS (major)" "App inactivity" "Lock screen disabled" "Risky iOS Profile" "Vulnerable OS (minor)" "Out-of-date OS")
+threat_prevention_policies_iOS=("Phishing" "Data Leaks" "Malware network traffic" "Cryptojacking" "Spam" "Third-party app store traffic" "Malware" "Sideloaded app installed" "Vulnerable app installed" "Dangerous certificate" "Adversary-in-the-Middle" "Risky hotspots" "Jailbreak" "Vulnerable OS (major)" "App inactivity" "Lock screen disabled" "Risky iOS Profile" "Vulnerable OS (minor)" "Out-of-date OS")
 # threat_prevention_policies_macOS=("test1" "test2")
 # threat_prevention_policies_iOS=("mobiletest1" "mobiletest2")
 #################################
@@ -60,6 +60,7 @@ echo "Logging output to: $LOG_FILE"
 #### API AUTHENTICATION ####
 getAccessToken() {
     echo "INFO: Retrieving access token..."
+    current_epoch=$(date +%s)
 	response=$(curl --silent --location --request POST "${jamf_pro_url}/api/oauth/token" \
         --header "Content-Type: application/x-www-form-urlencoded" \
         --data-urlencode "client_id=${client_id}" \
@@ -78,11 +79,20 @@ getAccessToken() {
 }
 checkTokenExpiration() {
     current_epoch=$(date +%s)
-    if [[ token_expiration_epoch -ge current_epoch ]]
+    # Add 300 seconds (5 minutes) buffer to renew token before it expires
+    buffer_time=300
+    expiration_with_buffer=$((token_expiration_epoch - buffer_time))
+    
+    if [[ $expiration_with_buffer -ge $current_epoch ]]
     then
-        echo "INFO: Token valid until the following epoch time: " "$token_expiration_epoch"
+        time_remaining=$((token_expiration_epoch - current_epoch))
+        echo "INFO: Token valid for $time_remaining more seconds (expires at epoch: $token_expiration_epoch)"
     else
-        echo "INFO: No valid token available, getting new token"
+        if [[ $token_expiration_epoch -gt 0 ]]; then
+            echo "INFO: Token expires soon or has expired, getting new token"
+        else
+            echo "INFO: No valid token available, getting new token"
+        fi
         getAccessToken
     fi
 }
@@ -160,7 +170,9 @@ select_macOS_TPPs_prompt() {
     # Prompt user to select an EA
     # when selecting all, all EAs checkboxes should be selected
     echo "###### SWIFT DIALOG PROMPT FOR macOS TPPs ######"
-    selectedTPPsMac=$(dialog \
+    
+    # Build the dialog command dynamically
+    dialog_cmd=(/usr/local/bin/dialog \
         --title "JCS UEM Signaling Framework Builder" \
         --message "Please select the Computer Extension Attributes you want to create:" \
         --messagefont "$messageFont" \
@@ -169,20 +181,18 @@ select_macOS_TPPs_prompt() {
         --checkboxstyle "switch,large" \
         --width 800 \
         --infobuttontext "Select All" \
-        --button2 "Cancel" \
-        --checkbox "${threat_prevention_policies_macOS[0]}" \
-        --checkbox "${threat_prevention_policies_macOS[1]}" \
-        --checkbox "${threat_prevention_policies_macOS[2]}" \
-        --checkbox "${threat_prevention_policies_macOS[3]}" \
-        --checkbox "${threat_prevention_policies_macOS[4]}" \
-        --checkbox "${threat_prevention_policies_macOS[5]}" \
-        --checkbox "${threat_prevention_policies_macOS[6]}" \
-        --checkbox "${threat_prevention_policies_macOS[7]}" \
-        --checkbox "${threat_prevention_policies_macOS[8]}" \
-        --checkbox "${threat_prevention_policies_macOS[9]}" \
-        --checkbox "${threat_prevention_policies_macOS[10]}" \
-        )
+        --button2 "Cancel")
+    
+    # Add checkboxes dynamically for each policy
+    for policy in "${threat_prevention_policies_macOS[@]}"; do
+        if [[ -n "$policy" ]]; then  # Only add non-empty policies
+            dialog_cmd+=(--checkbox "$policy")
+        fi
+    done
+    
+    selectedTPPsMac=$("${dialog_cmd[@]}")
     local exit_code=$?
+    
     if [[ $exit_code -eq 2 ]]; then
         echo "INFO: User cancelled the operation. Exiting."
         exit 0
@@ -192,7 +202,15 @@ select_macOS_TPPs_prompt() {
         echo "INFO: Using all TPPs: ${selectedTPPsMac[@]}"
         echo ""
     else
-        selectedTPPsMac=( $(echo "$selectedTPPsMac" | grep ':[[:space:]]*"true"' | cut -d '"' -f 2) )
+        # Parse selected TPPs properly handling spaces in policy names
+        temp_selected=()
+        while IFS= read -r line; do
+            if [[ "$line" =~ :[[:space:]]*\"true\" ]]; then
+                policy_name=$(echo "$line" | cut -d '"' -f 2)
+                temp_selected+=("$policy_name")
+            fi
+        done <<< "$selectedTPPsMac"
+        selectedTPPsMac=("${temp_selected[@]}")
         echo "INFO: User selected the following TPPs: ${selectedTPPsMac[@]}"
         echo ""
     fi
@@ -202,7 +220,9 @@ select_iOS_TPPs_prompt() {
     # Prompt user to select an EA
     # when selecting all, all EAs checkboxes should be selected
     echo "###### SWIFT DIALOG PROMPT FOR iOS TPPs ######"
-    selectedTPPsiOS=$(dialog \
+    
+    # Build the dialog command dynamically
+    dialog_cmd=(/usr/local/bin/dialog \
         --title "JCS UEM Signaling Framework Builder" \
         --message "Please select the Mobile Device Extension Attributes you want to create:" \
         --messagefont "$messageFont" \
@@ -211,42 +231,40 @@ select_iOS_TPPs_prompt() {
         --checkboxstyle "switch,large" \
         --width 800 \
         --button2 "Cancel" \
-        --infobuttontext "Select All" \
-        --checkbox "${threat_prevention_policies_iOS[0]}" \
-        --checkbox "${threat_prevention_policies_iOS[1]}" \
-        --checkbox "${threat_prevention_policies_iOS[2]}" \
-        --checkbox "${threat_prevention_policies_iOS[3]}" \
-        --checkbox "${threat_prevention_policies_iOS[4]}" \
-        --checkbox "${threat_prevention_policies_iOS[5]}" \
-        --checkbox "${threat_prevention_policies_iOS[6]}" \
-        --checkbox "${threat_prevention_policies_iOS[7]}" \
-        --checkbox "${threat_prevention_policies_iOS[8]}" \
-        --checkbox "${threat_prevention_policies_iOS[9]}" \
-        --checkbox "${threat_prevention_policies_iOS[10]}" \
-        --checkbox "${threat_prevention_policies_iOS[11]}" \
-        --checkbox "${threat_prevention_policies_iOS[12]}" \
-        --checkbox "${threat_prevention_policies_iOS[13]}" \
-        --checkbox "${threat_prevention_policies_iOS[14]}" \
-        --checkbox "${threat_prevention_policies_iOS[15]}" \
-        --checkbox "${threat_prevention_policies_iOS[16]}" \
-        --checkbox "${threat_prevention_policies_iOS[17]}" \
-        --checkbox "${threat_prevention_policies_iOS[18]}"
-        )
-        local exit_code=$?
-        if [[ $exit_code -eq 2 ]]; then
-            echo "INFO: User cancelled the operation. Exiting."
-            exit 0
-        elif [[ $exit_code -eq 3 ]]; then
-            echo "INFO: User selected 'Select All'."
-            selectedTPPsiOS=("${threat_prevention_policies_iOS[@]}")
-            echo "INFO: Using all TPPs: ${selectedTPPsiOS[@]}"
-            echo ""
-            return
-        else
-            selectedTPPsiOS=( $(echo "$selectedTPPsiOS" | grep ':[[:space:]]*"true"' | cut -d '"' -f 2) )
-            echo "INFO: User selected the following TPPs: ${selectedTPPsiOS[@]}"
-            echo ""
-        fi        
+        --infobuttontext "Select All")
+    
+    # Add checkboxes dynamically for each policy
+    for policy in "${threat_prevention_policies_iOS[@]}"; do
+        if [[ -n "$policy" ]]; then  # Only add non-empty policies
+            dialog_cmd+=(--checkbox "$policy")
+        fi
+    done
+    
+    selectedTPPsiOS=$("${dialog_cmd[@]}")
+    local exit_code=$?
+    
+    if [[ $exit_code -eq 2 ]]; then
+        echo "INFO: User cancelled the operation. Exiting."
+        exit 0
+    elif [[ $exit_code -eq 3 ]]; then
+        echo "INFO: User selected 'Select All'."
+        selectedTPPsiOS=("${threat_prevention_policies_iOS[@]}")
+        echo "INFO: Using all TPPs: ${selectedTPPsiOS[@]}"
+        echo ""
+        return
+    else
+        # Parse selected TPPs properly handling spaces in policy names
+        temp_selected=()
+        while IFS= read -r line; do
+            if [[ "$line" =~ :[[:space:]]*\"true\" ]]; then
+                policy_name=$(echo "$line" | cut -d '"' -f 2)
+                temp_selected+=("$policy_name")
+            fi
+        done <<< "$selectedTPPsiOS"
+        selectedTPPsiOS=("${temp_selected[@]}")
+        echo "INFO: User selected the following TPPs: ${selectedTPPsiOS[@]}"
+        echo ""
+    fi        
 }
 ########################
 # create extension attributes
@@ -307,10 +325,68 @@ create_mobile_device_extension_attribute() {
             }")
 }
 # create smart mobile device groups for EA 
-# Using old api: JSSResource/mobiledevicegroups/id/0 which needs to add an xml file to create a smart group
+# Using new api to create mobile device smart group
 create_mobile_device_smart_group() {
-    # Create XML payload for smart group creation
-    xml_payload="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    echo "INFO: Creating mobile device smart group using JSON API with correct structure..."
+    # echo "DEBUG: Policy name received: '$policy'"
+    # echo "DEBUG: Full EA name will be: 'JSC iOS Threat-Prevention-Policy: $policy'"
+    
+    # Mobile device smart groups API doesn't support extensionAttributeId, must use name
+    # But let's verify the EA exists and get its exact name from the system
+    ea_id=$(get_mobile_device_ea_id "$policy")
+    if [[ $? -eq 0 && -n "$ea_id" ]]; then
+        # echo "DEBUG: EA verified to exist with ID $ea_id"
+        # Get the exact EA name from the system to ensure perfect match
+        ea_response=$(curl --silent --request GET \
+            --url "${jamf_pro_url}/api/v1/mobile-device-extension-attributes/$ea_id" \
+            --header "Authorization: Bearer ${access_token}")
+        exact_ea_name=$(echo "$ea_response" | jq -r '.name')
+        # echo "DEBUG: Using exact EA name from system: '$exact_ea_name'"
+    else
+        echo "WARNING: Could not verify EA, using constructed name"
+        exact_ea_name="JSC iOS Threat-Prevention-Policy: $policy"
+    fi
+    
+    # Create the JSON payload using the exact EA name from the system
+    json_payload="{
+        \"groupName\": \"JSC Threat-Prevention-Policy: $policy\",
+        \"groupDescription\": \"Smart Group for devices matching Jamf Security Cloud Threat Prevention Policy: $policy\",
+        \"criteria\": [
+            {
+                \"name\": \"$exact_ea_name\",
+                \"value\": \"true\",
+                \"searchType\": \"is\",
+                \"andOr\": \"and\",
+                \"priority\": 0
+            }
+        ],
+        \"siteId\": \"-1\"
+    }"
+    
+    # echo "DEBUG: JSON payload being sent:"
+    # echo "$json_payload"
+    
+    response=$(curl --silent -w "\n%{http_code}" --request POST \
+        --url "$jamf_pro_url/api/v1/mobile-device-groups/smart-groups?platform=false" \
+        --header "Authorization: Bearer $access_token" \
+        --header 'accept: application/json' \
+        --header 'content-type: application/json' \
+        --data "$json_payload")
+    
+    # Extract status code (last line) and response body (everything else)
+    http_status=$(echo "$response" | tail -n1)
+    response_body=$(echo "$response" | sed '$d')
+    
+    # If JSON API fails, fall back to XML API
+    if [[ "$http_status" -ne 201 ]]; then
+        echo "WARNING: JSON API failed with status $http_status"
+        # echo "DEBUG: Full JSON API response: $response_body"
+        # echo "DEBUG: EA name being referenced: 'JSC iOS Threat-Prevention-Policy: $policy'"
+        # echo "DEBUG: Group name: 'JSC Threat-Prevention-Policy: $policy'"
+        echo "INFO: Falling back to XML API..."
+        
+        # Create XML payload for smart group creation
+        xml_payload="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
         <mobile_device_group>
             <name>JSC Threat-Prevention-Policy: $policy</name>
             <is_smart>true</is_smart>
@@ -327,14 +403,50 @@ create_mobile_device_smart_group() {
                 <id>-1</id>
             </site>
         </mobile_device_group>"
-    # Create the group
-    http_status=$(curl --silent -w "%{http_code}" -o /dev/null --request POST \
-        --url "$jamf_pro_url/JSSResource/mobiledevicegroups/id/0" \
-        --header "Authorization: Bearer $access_token" \
-        --header 'accept: application/xml' \
-        --header 'content-type: application/xml' \
-        --data "$xml_payload")
+        
+        # Create the group using XML API as fallback
+        http_status=$(curl --silent -w "%{http_code}" -o /dev/null --request POST \
+            --url "$jamf_pro_url/JSSResource/mobiledevicegroups/id/0" \
+            --header "Authorization: Bearer $access_token" \
+            --header 'accept: application/xml' \
+            --header 'content-type: application/xml' \
+            --data "$xml_payload")
+            
+        if [[ "$http_status" -eq 201 ]]; then
+            echo "INFO: Successfully created mobile device smart group using XML API fallback."
+        fi
+    else
+        echo "INFO: Successfully created mobile device smart group using JSON API."
+    fi
 }
+# Using old api: JSSResource/mobiledevicegroups/id/0 which needs to add an xml file to create a smart group
+# create_mobile_device_smart_group() {
+#     # Create XML payload for smart group creation
+#     xml_payload="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+#         <mobile_device_group>
+#             <name>JSC Threat-Prevention-Policy: $policy</name>
+#             <is_smart>true</is_smart>
+#             <criteria>
+#                 <criterion>
+#                     <name>JSC iOS Threat-Prevention-Policy: $policy</name>
+#                     <priority>0</priority>
+#                     <and_or>and</and_or>
+#                     <search_type>is</search_type>
+#                     <value>true</value>
+#                 </criterion>
+#             </criteria>
+#             <site>
+#                 <id>-1</id>
+#             </site>
+#         </mobile_device_group>"
+#     # Create the group
+#     http_status=$(curl --silent -w "%{http_code}" -o /dev/null --request POST \
+#         --url "$jamf_pro_url/JSSResource/mobiledevicegroups/id/0" \
+#         --header "Authorization: Bearer $access_token" \
+#         --header 'accept: application/xml' \
+#         --header 'content-type: application/xml' \
+#         --data "$xml_payload")
+# }
 donePrompt() {
 	echo "INFO: Showing Done Prompt."
 	# Prompt user that action is completed
@@ -423,6 +535,70 @@ get_mobile_device_group_info() {
         return 0
     fi
 }
+
+# Function to get EA ID by name
+get_mobile_device_ea_id() {
+    local ea_name_to_check="JSC iOS Threat-Prevention-Policy: $1"
+    local encoded_ea_name
+    encoded_ea_name=$(echo "$ea_name_to_check" | sed 's/ /%20/g')
+    response=$(curl --silent --request GET \
+        --url "${jamf_pro_url}/api/v1/mobile-device-extension-attributes?page=0&page-size=200&filter=name%3D%3D%22${encoded_ea_name}%22" \
+        --header "Authorization: Bearer ${access_token}")
+    
+    if [[ $(echo "$response" | jq -r '.totalCount') -gt 0 ]]; then
+        ea_id=$(echo "$response" | jq -r '.results[0].id')
+        ea_name=$(echo "$response" | jq -r '.results[0].name')
+        # echo "DEBUG: Found EA ID: $ea_id for name: '$ea_name'" >&2  # Send debug to stderr
+        echo "$ea_id"  # Only return the ID to stdout
+        return 0
+    else
+        echo "ERROR: Could not find EA ID for '$ea_name_to_check'" >&2
+        return 1
+    fi
+}
+
+# Function to verify EA exists before creating smart group
+verify_mobile_device_ea_exists() {
+    local ea_name_to_check="JSC iOS Threat-Prevention-Policy: $1"
+    echo "INFO: Verifying Extension Attribute '$ea_name_to_check' exists..."
+    local encoded_ea_name
+    encoded_ea_name=$(echo "$ea_name_to_check" | sed 's/ /%20/g')
+    response=$(curl --silent --request GET \
+        --url "${jamf_pro_url}/api/v1/mobile-device-extension-attributes?page=0&page-size=200&filter=name%3D%3D%22${encoded_ea_name}%22" \
+        --header "Authorization: Bearer ${access_token}")
+    
+    # Debug: Show what EAs we found
+    # echo "DEBUG: EA search response totalCount: $(echo "$response" | jq -r '.totalCount')"
+    if [[ $(echo "$response" | jq -r '.totalCount') -gt 0 ]]; then
+        ea_found_name=$(echo "$response" | jq -r '.results[0].name')
+        ea_found_id=$(echo "$response" | jq -r '.results[0].id')
+        # echo "DEBUG: Found EA ID: $ea_found_id with exact name: '$ea_found_name'"
+        echo "INFO: Extension Attribute verified to exist."
+        return 0
+    else
+        # echo "DEBUG: EA not found with exact name match. Searching for partial matches..."
+        # Try a broader search to see what EAs exist with similar names
+        # response_broad=$(curl --silent --request GET \
+        #     --url "${jamf_pro_url}/api/v1/mobile-device-extension-attributes?page=0&page-size=200" \
+        #     --header "Authorization: Bearer ${access_token}")
+        # echo "DEBUG: All EAs containing 'JSC iOS':"
+        # echo "$response_broad" | jq -r '.results[] | select(.name | contains("JSC iOS")) | .name'
+        
+        echo "WARNING: Extension Attribute not found. Waiting additional time..."
+        sleep 3
+        # Try one more time
+        response=$(curl --silent --request GET \
+            --url "${jamf_pro_url}/api/v1/mobile-device-extension-attributes?page=0&page-size=200&filter=name%3D%3D%22${encoded_ea_name}%22" \
+            --header "Authorization: Bearer ${access_token}")
+        if [[ $(echo "$response" | jq -r '.totalCount') -gt 0 ]]; then
+            echo "INFO: Extension Attribute verified to exist after retry."
+            return 0
+        else
+            echo "ERROR: Extension Attribute still not found after retry."
+            return 1
+        fi
+    fi
+}
 ######################################################################################################## END FUNCTIONS ################################################################################
 
 ################################################################################ MAIN SCRIPT EXECUTION ################################################################################
@@ -458,9 +634,15 @@ echo ""
 echo "INFO: Processing Computer Extension Attributes and Groups..."
 echo "#################################################################################"
 
+# Check token expiration before starting computer processing
+checkTokenExpiration
+
 
 
 for policy in "${selectedTPPsMac[@]}"; do
+    # Check token expiration before each policy processing
+    checkTokenExpiration
+    
     ea_name="JSC macOS Threat-Prevention-Policy: $policy"
     # check if EA already exists
     check_computer_ea_exists
@@ -515,7 +697,13 @@ echo ""
 
 echo "INFO: Processing Mobile Device Extension Attributes and Groups..."
 echo "#################################################################################"
+
+# Check token expiration before starting iOS processing (critical for "Select All" scenarios)
+checkTokenExpiration
 for policy in "${selectedTPPsiOS[@]}"; do
+    # Check token expiration before each policy processing (especially important for later iOS items)
+    checkTokenExpiration
+    
     ea_name="JSC iOS Threat-Prevention-Policy: $policy"
     # check if EA already exists
     check_mobile_device_ea_exists
@@ -532,10 +720,9 @@ for policy in "${selectedTPPsiOS[@]}"; do
         create_mobile_device_smart_group "$policy"
         sleep 0.5
         if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
-            echo "SUCCESS: Smart Mobile Device Group for $policy created successfully." Response code: $http_status
+            echo "SUCCESS: Smart Mobile Device Group for $policy created successfully. Response code: $http_status"
             echo ""
         else
-            #echo "DEBUG: Full response: $http_status"
             echo "ERROR: Failed to create Smart Mobile Device Group for $policy. HTTP status code: $http_status"
         fi
         continue
@@ -550,12 +737,23 @@ for policy in "${selectedTPPsiOS[@]}"; do
         else
             echo "ERROR: API call failed with HTTP status code: $http_status"
         fi
-        # Create a smart group for the EA
-        echo "INFO: Creating Mobile Device Group for policy: $policy"
-        create_mobile_device_smart_group "$policy"
-        sleep 0.5
+        # Wait and verify EA exists before creating smart group
+        echo "INFO: Waiting for Extension Attribute to be available in system..."
+        sleep 2
+        # Verify EA exists before creating smart group
+        verify_mobile_device_ea_exists "$policy"
+        if [[ $? -eq 0 ]]; then
+            # Create a smart group for the EA
+            echo "INFO: Creating Mobile Device Group for policy: $policy"
+            # echo "DEBUG: About to create smart group referencing EA: 'JSC iOS Threat-Prevention-Policy: $policy'"
+            create_mobile_device_smart_group "$policy"
+            sleep 0.5
+        else
+            echo "ERROR: Skipping Smart Group creation due to EA not being available."
+            continue
+        fi
         if [[ "$http_status" -eq 201 ]]; then # Check if the API call was successful (HTTP 201 means "Created")
-            echo "SUCCESS: Smart Mobile Device Group for $policy created successfully." Response code: $http_status
+            echo "SUCCESS: Smart Mobile Device Group for $policy created successfully. Response code: $http_status"
             echo ""
         else
             echo "ERROR: Failed to create Smart Mobile Device Group for $policy. HTTP status code: $http_status"
