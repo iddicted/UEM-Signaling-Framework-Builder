@@ -37,8 +37,10 @@ Variable names:
 - jq (JSON processor) (Default on macOS versions 10.15 and later)
 - bash (or compatible shell
 - API permissions:
-  - Create Smart Computer Groups
-  - Create Extension Attributes
+  - Computer Extension Attributes: Create, Read
+  - Mobile Device Extension Attributes: Create, Read
+  - Computer Groups: Create, Read
+  - Mobile Device Groups: Create, Read
 
 ## Logging
 The script logs its actions and any errors to a log file located at `~/Library/Logs/UEM_Signaling_Framework_Builder.log`.
